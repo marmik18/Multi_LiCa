@@ -11,24 +11,11 @@ from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
 from tf2_msgs.msg import TFMessage
 
+from tf2_ros import TransformException, LookupException, ConnectivityException, ExtrapolationException
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
+
 from .calibration.Calibration import *
-
- 
-def get_transfrom(tf_msg: TFMessage, child_frame_id: str) -> Transform:
-    """
-    Extract the transform for a specific child frame from a TFMessage.
-
-    Args:
-        tf_msg: A TFMessage containing transforms.
-        child_frame_id: The ID of the child frame for which to get the transform.
-
-    Returns:
-        The transform for the specified child frame, or None if the child frame is not in the TFMessage.
-    """
-    for tf in tf_msg.transforms:
-        if tf.child_frame_id == child_frame_id:
-            return tf.transform
-    return None
 
 
 class MultiLidarCalibrator(Node):
@@ -52,6 +39,7 @@ class MultiLidarCalibrator(Node):
         self.topic_names = self.declare_parameter("lidar_topics", ["lidar_1, lidar_2"]).value
         self.target_lidar = self.declare_parameter("target_frame_id", "lidar_1").value
         self.base_frame_id = self.declare_parameter("base_frame_id", "base_link").value
+        self.base_footprint_frame_id = self.declare_parameter("base_footprint_frame_id", "base_footprint").value
         self.calibrate_target = self.declare_parameter("calibrate_target", False).value
         self.calibrate_to_base = self.declare_parameter("calibrate_to_base", False).value
         self.base_to_ground_z = self.declare_parameter("base_to_ground_z", 0.0).value
@@ -92,14 +80,12 @@ class MultiLidarCalibrator(Node):
         self.read_pcds_from_file = self.declare_parameter("read_pcds_from_file", True).value
         with open(self.output_dir + self.results_file, "w") as file:  # clean the file
             file.write("")
-        self.tf_msg: TFMessage = None
         for topic in self.topic_names:
             self.subscribers.append(
                 self.create_subscription(PointCloud2, topic, self.pointcloud_callback, 10)
             )
-        self.tf_subscriber = self.create_subscription(
-            TFMessage, self.tf_topic, self.tf_callback, 10
-        )
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
         self.declared_lidars_flag = False
 
         # read all the data from files (without ROS)
@@ -138,6 +124,33 @@ class MultiLidarCalibrator(Node):
             exit(1)
         else:
             self.get_logger().info("waiting for point cloud messages...")
+            
+    def get_transfrom(self, to_frame_rel: str, from_frame_rel: str) -> Transform:
+        """
+        Extract the transform for a specific child frame from a TFMessage.
+
+        Args:
+            to_frame_rel: The ID of the child frame for which to get the transform.
+            from_frame_rel: The ID of the frame where you want to find the transformation from.
+
+        Returns:
+            The transform for the specified child frame.
+        """
+        try:
+            self.get_logger().info("Waiting for tf for 5s...")
+            self.get_logger().info(f"Looking for transform {to_frame_rel} to {from_frame_rel}")
+            t = self.tf_buffer.lookup_transform(
+                to_frame_rel,
+                from_frame_rel,
+                rclpy.time.Time(),
+                rclpy.duration.Duration(seconds=5.0))
+            self.get_logger().info(f"Transform: {t}")
+        except (TransformException, LookupException, ConnectivityException, ExtrapolationException) as ex:
+            self.get_logger().info(
+                f'Could not transform {to_frame_rel} to {from_frame_rel}: {ex}')
+            raise
+            
+        return t.transform
 
     def log_calibration_info(self, calibration: Calibration):
         """Log calibration information in ROS and output file"""
@@ -173,7 +186,7 @@ class MultiLidarCalibrator(Node):
                 zip(
                     self.lidar_data.keys(),
                     [
-                        Lidar.from_transform(lidar, get_transfrom(self.tf_msg, lidar))
+                        Lidar.from_transform(lidar, self.get_transfrom(self.base_frame_id if self.calibrate_to_base else self.target_lidar, lidar))
                         for lidar in self.lidar_data.keys()
                     ],
                 )
@@ -443,7 +456,7 @@ class MultiLidarCalibrator(Node):
             else:
                 translation.z = (
                     calibration.calibrated_transformation.translation.z
-                    - get_transfrom(self.tf_msg, self.base_frame_id).translation.z
+                    - self.get_transfrom(self.base_footprint_frame_id, self.base_frame_id).translation.z
                 )
 
             # Update the target lidar's transformation and point cloud
@@ -493,15 +506,9 @@ class MultiLidarCalibrator(Node):
         self.get_logger().info(f"Saved fused point cloud: {self.output_dir}")
         self.get_logger().info(f"Calibrations results are stored in: {self.output_dir}")
 
-    def tf_callback(self, msg):
-        self.get_logger().info("Received TFMessage data")
-        self.tf_msg = msg
 
     def pointcloud_callback(self, msg: PointCloud2):
         # Wait for the TFMessage before processing the point cloud if table is not used
-        if self.tf_msg is None and not self.read_tf_from_table:
-            self.get_logger().info("Waiting for tf...")
-            return
 
         # Add the point cloud to the lidar_data dictionary
         if msg.header.frame_id not in self.lidar_data.keys():
