@@ -55,15 +55,16 @@ ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 RUN apt-get remove python3-blinker -y
 
-WORKDIR /ros_ws
+USER ${USERNAME}
+WORKDIR /home/${USERNAME}/ros_ws
 
-COPY . /ros_ws/src/multi_lidar_calibration/
-
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install src/multi_lidar_calibration/TEASER-plusplus/
+COPY --chown=${USER_UID}:${USER_GID} . src/multi_lidar_calibrator/
 
 RUN pip install --no-cache-dir --upgrade pip && \
-  pip install --no-cache-dir -r src/multi_lidar_calibration/requirements.txt
+    pip install src/multi_lidar_calibrator/TEASER-plusplus/
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r src/multi_lidar_calibrator/requirements.txt
 
 RUN /bin/bash -c '. /opt/ros/$ROS_DISTRO/setup.bash && \
     colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release --packages-up-to multi_lidar_calibrator'

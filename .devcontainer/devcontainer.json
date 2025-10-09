@@ -6,6 +6,7 @@
 	"context": "..",
 	// Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
 	"dockerFile": "../Dockerfile",
+	"remoteUser": "local",
 	// Set *default* container specific settings.json values on container create.
 	"settings": {
 		"python.pythonPath": "/bin/python3",
@@ -16,12 +17,14 @@
 	],
 	// Uncomment the next line to run commands after the container is created - for example installing curl.
 	// Workspace mount
-	"workspaceMount": "source=${localWorkspaceFolder},target=/ros_ws/src/,type=bind,consistency=delegated",
+	"workspaceMount": "source=${localWorkspaceFolder},target=/home/local/ros_ws/src/multi_lidar_calibrator,type=bind,consistency=delegated",
 	// Define workspace
 	"workspaceFolder": "/ros_ws",
 	"runArgs": [
 		"-e", "DISPLAY=${env:DISPLAY}",
         "-v", "/tmp/.X11-unix:/tmp/.X11-unix",
+		"-e", "XAUTHORITY=/root/.Xauthority",
+		"-v", "${localEnv:HOME}/.Xauthority:/root/.Xauthority:rw",
         "-v", "/etc/localtime:/etc/localtime:ro",
         "-v", "/dev/input:/dev/input",
 		"-e", "ROS_DOMAIN_ID=${env:ROS_DOMAIN_ID}",
