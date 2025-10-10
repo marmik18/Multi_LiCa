@@ -9,7 +9,6 @@ import ros2_numpy as rnp
 from geometry_msgs.msg import Transform
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
-from tf2_msgs.msg import TFMessage
 
 from tf2_ros import TransformException, LookupException, ConnectivityException, ExtrapolationException
 from tf2_ros.buffer import Buffer
@@ -57,7 +56,7 @@ class MultiLidarCalibrator(Node):
             os.path.dirname(os.path.realpath(__file__))
             + self.declare_parameter("pcd_directory", "/../data/demo/").value
         )
-
+        self.output_format = self.declare_parameter("output_format", "txt").value
         self.rel_fitness = self.declare_parameter("rel_fitness", 1e-7).value
         self.rel_rmse = self.declare_parameter("rel_rmse", 1e-7).value
         self.max_iterations = self.declare_parameter("max_iterations", 100).value
@@ -80,6 +79,11 @@ class MultiLidarCalibrator(Node):
         self.read_pcds_from_file = self.declare_parameter("read_pcds_from_file", True).value
         with open(self.output_dir + self.results_file, "w") as file:  # clean the file
             file.write("")
+            if self.output_format == 'yaml':
+                yaml = f"calibration_time: {time()}\n"
+                yaml += f"target_frame: {self.target_lidar}\n"
+                yaml += f"calibrations:\n"
+                file.write(yaml)
         for topic in self.topic_names:
             self.subscribers.append(
                 self.create_subscription(PointCloud2, topic, self.pointcloud_callback, 10)
@@ -138,13 +142,11 @@ class MultiLidarCalibrator(Node):
         """
         try:
             self.get_logger().info("Waiting for tf for 5s...")
-            self.get_logger().info(f"Looking for transform {to_frame_rel} to {from_frame_rel}")
             t = self.tf_buffer.lookup_transform(
                 to_frame_rel,
                 from_frame_rel,
                 rclpy.time.Time(),
                 rclpy.duration.Duration(seconds=5.0))
-            self.get_logger().info(f"Transform: {t}")
         except (TransformException, LookupException, ConnectivityException, ExtrapolationException) as ex:
             self.get_logger().info(
                 f'Could not transform {to_frame_rel} to {from_frame_rel}: {ex}')
@@ -157,7 +159,22 @@ class MultiLidarCalibrator(Node):
         calibration_info = f"calibration info:\n{calibration.info(True, True)}"
         self.get_logger().info(calibration_info)
         with open(self.output_dir + self.results_file, "a") as file:
-            file.write(calibration_info + "\n")
+            if self.output_format == 'txt':
+                file.write(calibration_info + "\n")
+            elif self.output_format == 'yaml':
+                yaml =  f"  - source: {calibration.source.name}\n"
+                yaml += f"    target: {calibration.target.name}\n"
+                yaml += f"    translation: {calibration.calibrated_transformation.matrix[0:3, 3].tolist()} # in meters \n"
+                yaml += f"    rotation_rpy: {calibration.calibrated_transformation.rotation.as_arr().tolist()} # in radians \n"
+                yaml += f"    rotation_rpy_deg: {calibration.calibrated_transformation.rotation.as_arr(degrees=True).tolist()} # in degrees \n"
+                yaml += f"    rotation_quaternion: {calibration.calibrated_transformation.rotation.as_quaternion().tolist()}\n"
+                yaml += f"    matrix: {calibration.calibrated_transformation.matrix.tolist()}\n"             
+                yaml += f"    fitness: {calibration.reg_p2l.fitness}\n"
+                yaml += f"    rmse: {calibration.reg_p2l.inlier_rmse}\n"
+                file.write(yaml)
+            else:
+                self.get_logger().error("output_format not supported, use 'txt' or 'yaml'")
+                exit(1)
 
     def read_data(self):
         """Read point clouds from ROS and LiDAR initial transformation from either ROS or table."""
@@ -530,8 +547,9 @@ class MultiLidarCalibrator(Node):
             self.read_data()
             self.process_data()
             end = time()
-            with open(self.output_dir + self.results_file, "a") as file:
-                file.write(f"Complete calibration time: {end - begin}\n")
+            if self.output_format == 'txt':
+                with open(self.output_dir + self.results_file, "a") as file:
+                    file.write(f"Complete calibration time: {end - begin}\n")
             self.lidar_data = {}  # Clean the data after each calibration (for multiple runs)
             self.counter += 1
             if self.counter >= self.runs_count:
