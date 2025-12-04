@@ -1,0 +1,36 @@
+/**:
+  ros__parameters:
+    visualize: true
+    frame_count: 5
+    runs_count: 1
+    
+    # Topics for all lidars
+    lidar_topics: [ /adir/front/lidar, /adir/rear/lidar ] #
+    # Frame id of the master lidar. Firstly, other LiDARs are calibrated w.r.t. to this
+    target_frame_id: front_lidar_frame
+
+    # when true, calibrate target LiDAR (z, and pitch) to the base frame.
+    calibrate_target: false
+    # when true, calibrate all LiDARs to the base frame isntead of to other LiDARs
+    calibrate_to_base: false
+    base_frame_id: base_link
+    base_foot_print_id: base_footprint
+
+    read_tf_from_table: false
+    # table of lidar name (frame_id in ROS), xyz translation [m], rpy rotation [deg]
+    # frame_id: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # path for point clouds in pcd format. Structure: /pcd_directory/<lidar_name>.pcd
+    read_pcds_from_file: false
+
+    # calibration results are stored here (path relative to the dir with multi_lidar_calibrator.py)
+    output_dir: /../output/
+    output_format: yaml # options: yaml, txt
+    # logging output
+    results_file: adir.yaml
+
+    # Fitness based calibration parameters
+    use_fitness_based_calibration: true
+
+    # Ground removal parameters
+    remove_ground_flag: false
